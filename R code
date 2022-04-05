@@ -1,0 +1,233 @@
+install.packages("RPostgreSQL")
+library(RPostgreSQL)
+library(dplyr)
+library(plotly)
+
+drv <- RPostgreSQL::PostgreSQL()
+
+## Connecting to database
+conn<-dbConnect(drv,dbname="postgres",host = "10.1.2.60", port = 5432,user = "msu_greco", password =
+                  "Password@1234")
+
+card_base <- dbGetQuery(conn,'SELECT * from "msu_greco"."CardBase"')
+View(card_base)
+
+transcation_base <- dbGetQuery(conn,'SELECT * from "msu_greco"."TransactionBase"')
+View(transcation_base)
+
+customer_base <- dbGetQuery(conn,'SELECT * from "msu_greco"."CustomerBase"')
+View(customer_base)
+
+## Preliminary Data Treatment
+
+sum(is.na(customer_base))
+
+sum(is.na(card_base))
+
+summary(transcation_base)
+
+transcation <-na.omit(transcation_base, cols="Transaction_Value")
+
+summary(transcation)
+
+unique(customer_base[["Gender"]])
+
+#Replacing M in Gender Column 
+customer <- customer_base %>% mutate(Gender=replace(Gender, Gender == '!M', 'M')) %>% as.data.frame()
+unique(customer[["Gender"]])
+
+## Checking for outlier using Boxplot
+
+boxplot(customer$Age_of_credit_history,
+        main="Credit history boxplot",
+        at=c(1),
+        names=c("Transaction value"),
+        las=1)
+
+boxplot(customer$Total_accounts,
+        main="Total_accounts boxplot",
+        at=c(1),
+        names=c("Total_accounts"),
+        las=1)
+
+#### univariate analysis
+
+## Occupation
+ggplot(customer, aes(Occupation)) + geom_bar(aes(fill = Occupation))+coord_flip()
+#Research Analyst is the ocupation for most of the customers
+
+## Gender
+ggplot(customer, aes(Gender)) + geom_bar(aes(fill = Gender))
+#In customer base most of the customers are males
+
+## Customer Segment
+b <- ggplot(customer, aes(Customer_Segment))
+b+geom_bar()
+# Most Credit card category is Diamond
+
+#### Bivariate Analysis
+
+##Occupation vs Credit_Risk
+ggplot(customer, aes(Occupation)) + geom_bar(aes(fill = Credit_Risk))+coord_flip()
+#Customers with White Collar Clerical Occupation are low credit risk customers
+#Customers with Research Analyst Occupation are high credit risk customers
+
+#Gender vs Credit_Risk
+ggplot(customer, aes(Gender)) + geom_bar(aes(fill = Credit_Risk))
+# All the female customers are low credit risk customers
+
+#Income Group vs Credit_Risk
+ggplot(customer, aes(customer$`Income Group`)) + geom_bar(aes(fill = Credit_Risk))
+
+# Customer Segment vs Credit_Risk
+ggplot(customer, aes('customer$Customer_Segment')) + geom_bar(aes(fill = Credit_Risk))
+
+#Age vs Credit_Risk
+ggplot(customer, aes(Age)) + geom_bar(aes(fill = Credit_Risk))
+
+
+# Histogram
+hist(customer$Age)
+hist(customer$Age_of_credit_history)
+
+install.packages("DataExplorer")
+library(DataExplorer)
+
+#heatmap
+
+#1
+heatmap(table(customer$`Income Group`,customer$Region))
+
+#2
+set.seed(5000)
+customer$correlation <- rnorm(nrow(customer))
+ggplot(data = customer, aes(x = customer$Region, y = customer$`Income Group`)) +geom_tile(aes(fill = correlation))
+
+##Transforming the data into required format
+
+df <- merge(customer, card_base, by.x = "Cust_ID", by.y = "Cust_ID", all.x = TRUE)
+df <- joinedDf[is.na(['row.names.y']), ]
+View(df)
+
+# Eliminating null values
+df1 <-df[,-c(13,14,15,16,17)]
+df1 <- df1[,-c(2)]
+summary(df1)
+View(df1)
+
+df1$Cust_ID = as.factor(df1$Cust_ID)
+df1$Age = as.numeric(df1$Age)
+df1$Customer_Segment = as.factor(df1$Customer_Segment)
+df1$Customer_Segment = as.factor(df1$Customer_Segment)
+df1$Country_code = as.factor(df1$Country_code)
+df1$Region = as.factor(df1$Region)
+df1$`Income Group` = as.numeric(df1$`Income Group`)
+df1$Occupation = as.factor(df1$Occupation)
+df1$Gender = as.factor(df1$Gender)
+df1$Age_of_credit_history = as.numeric(df1$Age_of_credit_history)
+df1$Total_accounts = as.numeric(df1$Total_accounts)
+df1$Credit_Risk = as.factor(df1$Credit_Risk)
+
+#Random Forest Model
+
+install.packages("randomForest")
+library(randomForest)
+#feature selection for random forest
+install.packages("Boruta")
+library(Boruta)
+
+set.seed(500)
+train_boruta<-Boruta(Credit_Risk~.,data=final_df1,doTrace=2)
+
+#rejected variables are Age,Country_Code,Cust_ID
+
+df1 <- df1[,-c(1,2,4)]
+View(df1)
+
+install.packages('rfUtilities')
+install.packages("caret")
+library('caret')
+library(rfUtilities)
+
+str(df1)
+set.seed(100)
+samp <- sample(nrow(df1), 0.8 * nrow(df1))
+samp
+train <- df1[samp, ]
+test <- df1[-samp, ]
+View(train)
+
+randomForest1<- randomForest(Credit_Risk ~ ., data = train, importance=TRUE,proximity=TRUE)
+randomForest1
+
+
+dim(test)
+prediction <- predict(randomForest1, test, type = "class")
+
+confusionMatrix(prediction,test$Credit_Risk)
+randomForest$confusion
+
+library(AUC)
+#Accuracy obtained is 95.50%
+#precision=0.988
+
+ro<-roc(test$Credit_Risk,prediction)
+auc<-auc(ro)
+auc
+
+#AUC value =0.944
+
+#Changing the threshold value
+
+randomForest2 = randomForest(Credit_Risk ~ .,method='class',data=train,importance = TRUE, cutoff=c(0.2,0.1,0.4))
+randomForest2
+
+prediction1 <- predict(randomForest2, test, type = "class")
+
+confusionMatrix(prediction1,test$Credit_Risk)
+
+varImpPlot(randomForest)
+varImpPlot(randomForest2)
+
+#AUC
+ro<-roc(test$Credit_Risk,prediction1)
+auc<-auc(ro)
+auc
+#Occupation,Customer_Segment,Region has high importance
+#precision=0.87
+
+#Logistic Regression
+install.packages("e1071")
+
+train2=train
+
+train2$Credit_Risk = as.character(train2$Credit_Risk)
+
+train2$Credit_Risk[which(train2$Credit_Risk == "Low")] <- 1
+train2$Credit_Risk[which(train2$Credit_Risk=='Medium')] <- 0
+train2$Credit_Risk[which(train2$Credit_Risk=='High')] <- 0
+train2$Credit_Risk <- as.numeric(train2$Credit_Risk)
+
+View(train1)
+
+fit <- glm(Credit_Risk ~.,data = train2, family = binomial)
+
+summary(fit)
+
+prob <- predict(fit,type = "response")
+prob[1:20]
+
+predict <- ifelse(prob > 0.5, "greater", "lesser")
+
+attach(train2)
+table(train2$Credit_Risk,predict)
+
+#precision value=0.97 for low credit risk
+
+#type-1 error=0.73
+#type2- error=0.21
+
+
+#There are more than 3000 customers with less than 50 % probability of High credit risk
+##There are more than 850 customers with more than 50 % probability of Low credit risk
+
